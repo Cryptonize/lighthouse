@@ -8,6 +8,8 @@ import javafx.scene.control.*;
 import lighthouse.*;
 import lighthouse.controls.*;
 import org.bitcoinj.core.*;
+import org.bitcoinj.wallet.SendRequest;
+import org.bitcoinj.wallet.Wallet;
 import org.spongycastle.crypto.params.*;
 
 import javax.annotation.*;
@@ -47,8 +49,10 @@ public class EmptyWalletController {
         // Address exception cannot happen as we validated it beforehand.
         try {
             Address destination = new Address(Main.params, address.getText());
-            Wallet.SendRequest req = Wallet.SendRequest.emptyWallet(destination);
+            SendRequest req = SendRequest.emptyWallet(destination);
             req.aesKey = aesKey;
+            req.ensureMinRequiredFee = true;
+            req.setUseForkId(true);
             sendResult = Main.bitcoin.wallet().sendCoins(req);
             Futures.addCallback(sendResult.broadcastComplete, new FutureCallback<Transaction>() {
                 @Override

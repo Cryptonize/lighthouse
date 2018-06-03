@@ -53,7 +53,7 @@
                         <HBox alignment="CENTER_LEFT" prefWidth="200.0" spacing="5.0" GridPane.columnIndex="1" GridPane.rowIndex="4">
                             <children>
                                 <TextField fx:id="goalAmountEdit" alignment="CENTER_RIGHT" style="-fx-graphic: url('icon.png')" text="0.0" HBox.hgrow="ALWAYS" />
-                                <Label minWidth="-Infinity" styleClass="btc-label-block" text="BTC" />
+                                <Label minWidth="-Infinity" styleClass="btc-label-block" text="BCH" />
                                 <Label minWidth="-Infinity" text="%Min pledge">
                                     <padding>
                                         <Insets left="15.0" />
@@ -63,7 +63,7 @@
                                     </HBox.margin>
                                 </Label>
                                 <TextField fx:id="minPledgeEdit" alignment="CENTER_RIGHT" />
-                                <Label minWidth="-Infinity" styleClass="btc-label-block" text="BTC" />
+                                <Label minWidth="-Infinity" styleClass="btc-label-block" text="BCH" />
                             </children>
                         </HBox>
                         <Label text="%Address" GridPane.rowIndex="5" />

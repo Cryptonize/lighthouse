@@ -56,7 +56,7 @@ public class Main extends Application {
     public static final Logger log = LoggerFactory.getLogger(Main.class);
 
     // This is not translated as it's used for directory paths and other system strings.
-    public static final String APP_NAME = "Crowdfunding App";
+    public static final String APP_NAME = "Lighthouse Cash";
 
     // UpdateFX stuff. Version is incremented monotonically after a new version is released.
     public static final int VERSION = 30;
@@ -354,6 +354,7 @@ public class Main extends Application {
         scene.getAccelerators().put(KeyCombination.valueOf("Shortcut+S"), () -> Platform.runLater(this::loadMainWindow));
         scene.getAccelerators().put(KeyCombination.valueOf("Shortcut+C"), () -> Platform.runLater(() -> refreshStylesheets(scene)));
         refreshStylesheets(scene);
+        stage.getIcons().add(new Image("lighthouse/icon.png"));
         stage.setTitle(APP_NAME);
         stage.setMinWidth(800);
         stage.setMinHeight(600);
@@ -372,7 +373,7 @@ public class Main extends Application {
     }
 
     private Node createLoadingUI() {
-        VBox vBox = new VBox(new Label("Crowdfunding app"));
+        VBox vBox = new VBox(new Label("Lighthouse Cash"));
         vBox.setPrefWidth(Double.MAX_VALUE);
         vBox.setPrefHeight(Double.MAX_VALUE);
         vBox.setAlignment(Pos.CENTER);

@@ -160,6 +160,7 @@ public class EditProjectWindow {
                     model.setMinPledgeAmount(valueOrThrow(cur));
             }
         });
+
         ValidationLink addressValid = new ValidationLink(addressEdit, str -> !didThrow(() -> new Address(Main.params, str)));
         addressEdit.textProperty().addListener((obj, prev, cur) -> {
             if (addressValid.isValid.get())
@@ -177,7 +178,7 @@ public class EditProjectWindow {
         roundCorners(coverImageView, 10);
 
         // TRANS: %d = maximum number of pledges
-        Label maxPledgesWarning = new Label(String.format(tr("You can collect a maximum of %d pledges, due to limits in the Bitcoin protocol."), ProjectModel.MAX_NUM_INPUTS));
+        Label maxPledgesWarning = new Label(String.format(tr("You can collect a maximum of %d pledges, due to limits in the Bitcoin Cash protocol."), ProjectModel.MAX_NUM_INPUTS));
         maxPledgesWarning.setStyle("-fx-font-size: 12; -fx-padding: 10");
         maxPledgesPopOver = new PopOver(maxPledgesWarning);
         maxPledgesPopOver.setDetachable(false);

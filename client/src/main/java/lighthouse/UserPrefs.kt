@@ -18,7 +18,7 @@ public class UserPrefs {
 
     private val prefs = Properties()
     private val path = AppDirectory.dir().resolve("settings.txt").toFile()
-    public val prefsFileFound: Boolean
+    public var prefsFileFound: Boolean
 
     init {
         try {

@@ -6,7 +6,7 @@ import javafx.beans.property.SimpleBooleanProperty
 import lighthouse.files.AppDirectory
 import lighthouse.wallet.PledgingWallet
 import org.bitcoinj.core.*
-import org.bitcoinj.core.listeners.AbstractPeerEventListener
+import org.bitcoinj.core.listeners.PeerConnectedEventListener
 import org.bitcoinj.core.listeners.PeerDataEventListener
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.net.discovery.DnsDiscovery
@@ -16,7 +16,7 @@ import org.bitcoinj.params.UnitTestParams
 import org.bitcoinj.store.BlockStore
 import org.bitcoinj.store.BlockStoreException
 import org.bitcoinj.store.SPVBlockStore
-import org.bitcoinj.store.WalletProtobufSerializer
+import org.bitcoinj.wallet.WalletProtobufSerializer
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.KeyChainGroup
 import org.slf4j.LoggerFactory
@@ -67,18 +67,16 @@ public class BitcoinBackend @Throws(ChainFileLockedException::class) constructor
         } else {
             with(PeerGroup(context)) {
                 // PeerGroup will use a local Bitcoin node if at all possible, but it may not have what we need.
-                addEventListener(object : AbstractPeerEventListener() {
-                    override fun onPeerConnected(peer: Peer, peerCount: Int) {
-                        if (peer.address.addr.isLoopbackAddress && !peer.peerVersionMessage.isGetUTXOsSupported) {
-                            // We connected to localhost but it doesn't have what we need.
-                            log.warn("Localhost peer does not have support for NODE_GETUTXOS, ignoring")
-                            useLocalhostPeerWhenPossible = false
-                            maxConnections = NUM_XT_PEERS
-                            peer.close()
-                            localNodeUnusable.set(true)
-                        }
+                addConnectedEventListener { peer, _ ->
+                    if (peer.address.addr.isLoopbackAddress && !peer.peerVersionMessage.isGetUTXOsSupported) {
+                        // We connected to localhost but it doesn't have what we need.
+                        log.warn("Localhost peer does not have support for NODE_GETUTXOS, ignoring")
+                        useLocalhostPeerWhenPossible = false
+                        maxConnections = NUM_XT_PEERS
+                        peer.close()
+                        localNodeUnusable.set(true)
                     }
-                })
+                }
                 // There's unfortunately no way to instruct the other seeds to search for a subset of the Bitcoin network
                 // so that's why we need to use a new more flexible HTTP based protocol here. The seed will find
                 // Bitcoin XT nodes as people start and stop them.
@@ -87,10 +85,10 @@ public class BitcoinBackend @Throws(ChainFileLockedException::class) constructor
                 // to randomly merge their answers and reduce the influence of any one seed. Additionally if
                 // more people run Bitcoin XT nodes we can bump up the number we search for here to again
                 // reduce the influence of any one node. But this needs people to help decentralise.
-                val uri = URI("http://main.seed.vinumeris.com/peers?srvmask=3&getutxo=true")
-                val authKey = ECKey.fromPublicOnly(BaseEncoding.base16().decode("027a79143a4de36341494d21b6593015af6b2500e720ad2eda1c0b78165f4f38c4".toUpperCase()))
+                val uri = URI("https://cartographer.lighthouse.cash/peers?srvmask=3&getutxo=true")
+                val authKey = ECKey.fromPublicOnly(BaseEncoding.base16().decode("0356d9e50e356b9b139f107866e6497026dcc00b31455a9c6baebfaf0bf9eb832f".toUpperCase()))
                 addPeerDiscovery(HttpDiscovery(params, uri, authKey))
-                setConnectTimeoutMillis(10000)
+                setConnectTimeoutMillis(100000)
                 maxConnections = NUM_XT_PEERS
                 setUserAgent(appName, appVersion)
                 this

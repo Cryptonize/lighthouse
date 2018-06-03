@@ -19,6 +19,7 @@ import org.slf4j.*;
 import org.spongycastle.crypto.params.*;
 
 import javax.annotation.*;
+import javax.xml.bind.DatatypeConverter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.*;
@@ -279,9 +280,11 @@ public class PledgingWallet extends Wallet {
             if (params == UnitTestParams.get())
                 req.shuffleOutputs = false;
             req.aesKey = aesKey;
+            req.ensureMinRequiredFee = true;
+            req.setUseForkId(true);
             completeTx(req);
             dependency = req.tx;
-            totalFees = req.fee;
+            totalFees = req.tx.getFee();
             log.info("Created dependency tx {}", dependency.getHash());
             // The change is in a random output position so we have to search for it. It's possible that there are
             // two outputs of the same size, in that case it doesn't matter which we use.
@@ -305,8 +308,10 @@ public class PledgingWallet extends Wallet {
         Script script = stub.getScriptPubKey();
         if (aesKey != null)
             key = key.maybeDecrypt(aesKey);
-        TransactionSignature signature = pledge.calculateSignature(0, key, script,
-                Transaction.SigHash.ALL, true /* anyone can pay! */);
+        TransactionSignature signature =
+                pledge.calculateWitnessSignature(0, key, script, pledge.getInput(0).getConnectedOutput().getValue(),
+                        Transaction.SigHash.ALL, true /* anyone can pay! */);
+
         if (script.isSentToAddress()) {
             input.setScriptSig(ScriptBuilder.createInputScript(signature, key));
         } else if (script.isSentToRawPubKey()) {
@@ -316,8 +321,12 @@ public class PledgingWallet extends Wallet {
         }
         input.setScriptSig(ScriptBuilder.createInputScript(signature,  key));
         pledge.setPurpose(Transaction.Purpose.ASSURANCE_CONTRACT_PLEDGE);
-
+        log.info("pledge connected output value {}", pledge.getInput(0).getConnectedOutput().getValue().toPlainString());
         log.info("Paid {} satoshis in fees to create pledge tx {}", totalFees, pledge);
+        if(dependency != null)
+            log.info("dependencies {} ", dependency);
+        else
+            log.info("depency null");
 
         return new PendingPledge(project, dependency, pledge, totalFees.longValue(), details);
     }
@@ -387,6 +396,8 @@ public class PledgingWallet extends Wallet {
         revocation.addOutput(stub.getValue().subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE),
                 freshReceiveKey().toAddress(params));
         SendRequest request = SendRequest.forTx(revocation);
+        request.setUseForkId(true);
+        request.ensureMinRequiredFee = true;
         request.aesKey = aesKey;
         completeTx(request);
         synchronized (this) {
@@ -440,8 +451,9 @@ public class PledgingWallet extends Wallet {
         final Coin feeSize = Transaction.REFERENCE_DEFAULT_MIN_TX_FEE.multiply(2);
         log.info("Completing contract with fee: sending dependency tx");
         Transaction contract = project.completeContract(pledges);
-        Wallet.SendRequest request = Wallet.SendRequest.to(freshReceiveKey().toAddress(params), feeSize);
+        SendRequest request = SendRequest.to(freshReceiveKey().toAddress(params), feeSize);
         request.aesKey = aesKey;
+        request.setUseForkId(true);
         Wallet.SendResult result = sendCoins(vTransactionBroadcaster, request);
 
         TransactionBroadcast.ProgressCallback mergingCallback = new TransactionBroadcast.ProgressCallback() {
@@ -474,9 +486,43 @@ public class PledgingWallet extends Wallet {
                     // Sign the final output we added.
                     SendRequest req = SendRequest.forTx(contract);
                     req.aesKey = aesKey;
+                    req.setUseForkId(true);
                     signTransaction(req);
-                    log.info("Prepared final contract: {}", contract);
-                    TransactionBroadcast broadcast = vTransactionBroadcaster.broadcastTransaction(contract);
+                    log.info("Prepared final contract(req): {}", req.tx);
+                    log.info("Prepared final contract(req - hex): {}", DatatypeConverter.printHexBinary(req.tx.unsafeBitcoinSerialize()));
+                    int i = 0;
+                    for(TransactionInput input: req.tx.getInputs()){
+                        log.info("CHECKING {} INPUT ", i);
+                        log.info("input " + input.toString());
+                        DefaultRiskAnalysis.RuleViolation ruleViolation = DefaultRiskAnalysis.isInputSignedWithForkId(input, true);
+                        log.info("sig rules violated " + ruleViolation.name());
+
+                        try {
+                            // We assume if its already signed, its hopefully got a SIGHASH type that will not invalidate when
+                            // we sign missing pieces (to check this would require either assuming any signatures are signing
+                            // standard output types or a way to get processed signatures out of script execution)
+                            if(input.getScriptSig()!=null){
+
+                                if(input.getConnectedOutput()!=null){
+                                    input.getScriptSig().correctlySpends(tx, i, input.getConnectedOutput().getScriptPubKey());
+                                }else{
+                                    log.info("no ConnectedOutput");
+                                }
+
+                            } else{
+                               log.info("no Script sig");
+                            }
+                            log.info("Input {} already correctly spends output, assuming SIGHASH type used will be safe and skipping signing.", i);
+
+                        } catch (ScriptException e) {
+                            log.info("Input contained an incorrect signature", e);
+                            // Expected.
+                        }
+                        i++;
+                    }
+
+                    TransactionBroadcast broadcast = vTransactionBroadcaster.broadcastTransaction(req.tx);
+
                     broadcast.setProgressCallback(mergingCallback, callbackExecutor);
                     Futures.addCallback(broadcast.future(), new FutureCallback<Transaction>() {
                         @Override

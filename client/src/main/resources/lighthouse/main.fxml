@@ -48,7 +48,7 @@
                             </ImageView>
                             <Pane prefWidth="10"/>
                             <Label fx:id="balance" text="1.457"/>
-                            <Label styleClass="currency-type-label" text="BTC" textOverrun="CLIP"/>
+                            <Label styleClass="currency-type-label" text="BCH" textOverrun="CLIP"/>
                         </children>
                         <padding>
                             <Insets left="20"/>

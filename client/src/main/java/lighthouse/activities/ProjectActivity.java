@@ -30,6 +30,7 @@ import lighthouse.threading.*;
 import lighthouse.utils.*;
 import org.bitcoinj.core.*;
 import org.bitcoinj.params.*;
+import org.bitcoinj.wallet.Wallet;
 import org.slf4j.*;
 
 import javax.annotation.*;

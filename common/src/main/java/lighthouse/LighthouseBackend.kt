@@ -6,6 +6,7 @@ import com.google.common.base.Splitter
 import com.google.common.base.Throwables.getRootCause
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import javafx.beans.InvalidationListener
 import javafx.beans.property.LongProperty
 import javafx.beans.property.SimpleLongProperty
@@ -28,10 +29,12 @@ import nl.komponents.kovenant.async
 import nl.komponents.kovenant.deferred
 import nl.komponents.kovenant.jvm.asDispatcher
 import org.bitcoinj.core.*
-import org.bitcoinj.core.listeners.AbstractBlockChainListener
+import org.bitcoinj.core.listeners.NewBestBlockListener
 import org.bitcoinj.core.listeners.OnTransactionBroadcastListener
-import org.bitcoinj.core.listeners.WalletCoinEventListener
+import org.bitcoinj.core.listeners.TransactionReceivedInBlockListener
 import org.bitcoinj.params.RegTestParams
+import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
+import org.bitcoinj.wallet.listeners.WalletCoinsSentEventListener
 import org.slf4j.LoggerFactory
 import org.spongycastle.crypto.params.KeyParameter
 import java.io.File
@@ -47,6 +50,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.function.BiConsumer
 import java.util.function.BiFunction
+import org.bitcoinj.wallet.Wallet
 
 /**
  * LighthouseBackend is a bit actor-ish: it uses its own thread which owns almost all internal state. Other
@@ -62,11 +66,11 @@ public class LighthouseBackend public constructor(
         public val params: NetworkParameters,
         private val bitcoin: IBitcoinBackend,
         public val executor: AffinityExecutor.ServiceAffinityExecutor
-) : AbstractBlockChainListener() {
+) : NewBestBlockListener, TransactionReceivedInBlockListener{
     companion object {
-        const public val PROJECT_STATUS_FILENAME: String = "project-status.txt"
-        const public val PROJECT_FILE_EXTENSION: String = ".lighthouse-project"
-        const public val PLEDGE_FILE_EXTENSION: String = ".lighthouse-pledge"
+        const val PROJECT_STATUS_FILENAME: String = "project-status.txt"
+        const val PROJECT_FILE_EXTENSION: String = ".lighthouse-project"
+        const val PLEDGE_FILE_EXTENSION: String = ".lighthouse-pledge"
 
         private val log = LoggerFactory.getLogger(LighthouseBackend::class.java)
 
@@ -171,15 +175,12 @@ public class LighthouseBackend public constructor(
                         }
                     }
                     // Make sure we can spot projects being claimed.
-                    wallet.addCoinEventListener(executor, object : WalletCoinEventListener {
-                        override fun onCoinsSent(wallet: Wallet, tx: Transaction, prevBalance: Coin, newBalance: Coin) {
-                        }
+                    val sentListener = WalletCoinsSentEventListener { _, _, _, _ -> }
+                    wallet.addCoinsSentEventListener(executor, sentListener)
 
-                        override fun onCoinsReceived(wallet: Wallet, tx: Transaction, prevBalance: Coin, newBalance: Coin) {
-                            checkPossibleClaimTX(tx)
-                        }
-
-                    })
+                    val receiveListener = WalletCoinsReceivedEventListener { _, tx, _, _ ->
+                        checkPossibleClaimTX(tx) }
+                    wallet.addCoinsReceivedEventListener(executor, receiveListener)
 
                     for (tx in wallet.getTransactions(false)) {
                         if (tx.outputs.size != 1) continue    // Optimization: short-circuit: not a claim.
@@ -191,7 +192,8 @@ public class LighthouseBackend public constructor(
                     // Let us find revocations by using a direct Bloom filter provider. We could watch out for claims in this
                     // way too, but we want the wallet to monitor confidence of claims, and don't care about revocations as much.
                     installBloomFilterProvider()
-                    chain.addListener(this@LighthouseBackend, executor)
+                    chain.addNewBestBlockListener(executor, this@LighthouseBackend)
+                    chain.addTransactionReceivedListener(executor, this@LighthouseBackend)
                 }
 
                 // And signal success.
@@ -244,7 +246,7 @@ public class LighthouseBackend public constructor(
 
     private fun loadProjectFiles(appdir: File) {
         appdir.listFiles {
-            it.toString().endsWith(PROJECT_FILE_EXTENSION) && it.isFile
+            file -> file.toString().endsWith(PROJECT_FILE_EXTENSION) && file.isFile
         }?.map {
             tryLoadProject(it)
         }?.filterNotNull()?.forEach { project ->
@@ -261,7 +263,7 @@ public class LighthouseBackend public constructor(
         projectStates[project.hash] = ProjectStateInfo(ProjectState.OPEN, null)
         // Ensure we can look up a Project when we receive an HTTP request.
         if (project.isServerAssisted && mode == Mode.SERVER)
-            projectsByUrlPath[project.paymentURL.path] = project
+            projectsByUrlPath[project.paymentURL!!.path] = project
         projectsMap[project.hash] = project
         configureWalletToSpotClaimsFor(project)
     }
@@ -300,7 +302,7 @@ public class LighthouseBackend public constructor(
 
     private fun loadPledges(appdir: File) {
         appdir.listFiles {
-            it.toString().endsWith(PLEDGE_FILE_EXTENSION)
+            file -> file.toString().endsWith(PLEDGE_FILE_EXTENSION)
         }?.map {
             tryLoadPledge(it)
         }?.filterNotNull()?.forEach {
@@ -420,7 +422,7 @@ public class LighthouseBackend public constructor(
         // things like watch out for double spends and track chain depth.
         val scripts = project.outputs.map { it.scriptPubKey }
         scripts.forEach { it.creationTimeSeconds = project.protoDetails.time }
-        val toAdd = scripts.toArrayList()
+        val toAdd = ArrayList(scripts)
 
         toAdd.removeAll(bitcoin.wallet.watchedScripts)
         if (toAdd.isNotEmpty())
@@ -482,18 +484,25 @@ public class LighthouseBackend public constructor(
             } else {
                 log.info("Checking ${pledges.size} pledge(s) against P2P network for '$project'")
                 markAsInProgress(project)
-                val peerFuture = bitcoin.xtPeers.waitForPeersOfVersion(minPeersForUTXOQuery, GetUTXOsMessage.MIN_PROTOCOL_VERSION.toLong())
+                val peerFuture: ListenableFuture<List<Peer>>
+                val localhost = PeerAddress.localhost(params)
+                val minPeers =
+                  when(bitcoin.xtPeers.connectedPeers.size == 1 && bitcoin.xtPeers.connectedPeers[0].address.equals(localhost)  ){
+                      true -> 1
+                      false -> minPeersForUTXOQuery
+                  }
+                  peerFuture = bitcoin.xtPeers.waitForPeersOfVersion(minPeers, GetUTXOsMessage.MIN_PROTOCOL_VERSION.toLong())
                 if (!peerFuture.isDone) {
-                    log.info("Waiting to find {} peers that support getutxo", minPeersForUTXOQuery)
+                    log.info("Waiting to find {} peers that support getutxo", minPeers)
                     for (peer in bitcoin.xtPeers.connectedPeers) log.info("Connected to: {}", peer)
                 }
                 Futures.addCallback(peerFuture, object : FutureCallback<List<Peer>> {
-                    override fun onSuccess(allPeers: List<Peer>) {
+                    override fun onSuccess(allPeers: List<Peer>?) {
                         log.info("Peers available: {}", allPeers)
                         executor.checkOnThread()
                         // Do a fast delete of any peers that claim they don't support NODE_GETUTXOS. We ensure we always
                         // find nodes that support it elsewhere.
-                        val origSize = allPeers.size
+                        val origSize = allPeers!!.size
                         val xtPeers = allPeers.filter { it.peerVersionMessage.isGetUTXOsSupported }
                         if (xtPeers.isEmpty()) {
                             val ex = Exception("No nodes of high enough version advertised NODE_GETUTXOS")
@@ -730,9 +739,9 @@ public class LighthouseBackend public constructor(
             if (mode == Mode.SERVER) {
                 // Ensure we can look up a Project when we receive an HTTP request.
                 if (old.isServerAssisted)
-                    projectsByUrlPath.remove(old.paymentURL.path)
+                    projectsByUrlPath.remove(old.paymentURL!!.path)
                 if (new.isServerAssisted)
-                    projectsByUrlPath[new.paymentURL.path] = new
+                    projectsByUrlPath[new.paymentURL!!.path] = new
             }
             projectsMap.remove(old.hash)
             projectsMap[new.hash] = new
@@ -789,7 +798,7 @@ public class LighthouseBackend public constructor(
                 return@async pledge
 
             // TODO: Make this call use Kovenant too.
-            checkPledgeAgainstP2PNetwork(project, pledge).handle { p, error ->
+            checkPledgeAgainstP2PNetwork(project, pledge).handle { _, error ->
                 if (error != null) {
                     deferred.reject(error)
                 } else {
@@ -894,41 +903,35 @@ public class LighthouseBackend public constructor(
             // Maybe broadcast the dependencies first.
             var broadcast = CompletableFuture<LHProtos.Pledge>()
             if (pledge.transactionsCount > 1)
-                broadcast = broadcastDependenciesOf(pledge)
-            else
-                broadcast.complete(null)
+                broadcastDependenciesOf(pledge)
             // Switch to backend thread.
-            broadcast.handleAsync(BiFunction<LHProtos.Pledge, Throwable, Any> { pledge, ex ->
-                if (ex != null) {
-                    result.completeExceptionally(ex)
-                } else {
-                    try {
-                        // Check we don't accept too many pledges. This can happen if there's a buggy client or if users
-                        // are submitting pledges more or less in parallel - running on the backend thread here should
-                        // eliminate any races from that and ensure only one pledge wins.
-                        val total = fetchTotalPledged(project)
-                        val value = pledge.pledgeDetails.totalInputValue.asCoin()
-                        if (total + value > project.goalAmount) {
-                            log.error("Too much money submitted! {} already vs {} in new pledge", total, value)
-                            throw Ex.GoalExceeded()
-                        }
-                        // Once dependencies (if any) are handled, start the check process. This will update pledges once
-                        // done successfully.
-                        checkPledgeAgainstP2PNetwork(project, pledge).whenComplete { it, ex2 ->
-                            if (ex2 != null) {
-                                result.completeExceptionally(ex2)
-                            } else {
-                                // Finally, save to disk. This will cause a notification of a new pledge to happen but we'll end
-                                // up ignoring it because we'll see we already loaded and verified it.
-                                savePledge(pledge)
-                                result.complete(pledge)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        result.completeExceptionally(e)
+            log.info("pledge {}", pledge)
+            try {
+                // Check we don't accept too many pledges. This can happen if there's a buggy client or if users
+                // are submitting pledges more or less in parallel - running on the backend thread here should
+                // eliminate any races from that and ensure only one pledge wins.
+                val total = fetchTotalPledged(project)
+                val value = pledge.pledgeDetails.totalInputValue.asCoin()
+                if (total + value > project.goalAmount) {
+                    log.error("Too much money submitted! {} already vs {} in new pledge", total, value)
+                    throw Ex.GoalExceeded()
+                }
+                // Once dependencies (if any) are handled, start the check process. This will update pledges once
+                // done successfully.
+                checkPledgeAgainstP2PNetwork(project, pledge).whenCompleteAsync { it, ex2 ->
+                    if (ex2 != null) {
+                        result.completeExceptionally(ex2)
+                    } else {
+                        // Finally, save to disk. This will cause a notification of a new pledge to happen but we'll end
+                        // up ignoring it because we'll see we already loaded and verified it.
+                        savePledge(pledge)
+                        result.complete(pledge)
                     }
                 }
-            }, executor)
+            } catch (e: Exception) {
+                result.completeExceptionally(e)
+            }
+            log.info("handle async out")
         } catch (e: Exception) {
             result.completeExceptionally(e)
         }
@@ -945,9 +948,8 @@ public class LighthouseBackend public constructor(
         path.toFile().writeBytes(bits)
     }
 
-    private fun broadcastDependenciesOf(pledge: LHProtos.Pledge): CompletableFuture<LHProtos.Pledge> {
+    private fun broadcastDependenciesOf(pledge: LHProtos.Pledge) {
         checkArgument(pledge.transactionsCount > 1)
-        val result = CompletableFuture<LHProtos.Pledge>()
         log.info("Pledge has {} dependencies", pledge.transactionsCount - 1)
         executor.executeASAP {
             try {
@@ -955,7 +957,7 @@ public class LighthouseBackend public constructor(
                 if (txnBytes.size > 5) {
                     // We don't accept ridiculous number of dependency txns. Even this is probably too much.
                     log.error("Too many dependencies: {}", txnBytes.size)
-                    result.completeExceptionally(Ex.TooManyDependencies(txnBytes.size))
+                    throw  Exception("Too many dependencies")
                 } else {
                     log.info("Broadcasting {} provided pledge dependencies", txnBytes.size)
                     txnBytes.map { Transaction(params, it.toByteArray()) }.forEach {
@@ -965,13 +967,11 @@ public class LighthouseBackend public constructor(
                         log.info("Broadcasting dependency {} with thirty second timeout", it.hash)
                         bitcoin.peers.broadcastTransaction(it).future().get(30, TimeUnit.SECONDS)
                     }
-                    result.complete(pledge)
                 }
             } catch (e: Throwable) {
-                result.completeExceptionally(e)
+                throw  Exception(e)
             }
         }
-        return result
     }
 
     public fun setMinPeersForUTXOQuery(minPeersForUTXOQuery: Int) {
@@ -1039,7 +1039,12 @@ public class LighthouseBackend public constructor(
     @Throws(VerificationException::class)
     override fun notifyTransactionIsInBlock(txHash: Sha256Hash, block: StoredBlock, blockType: AbstractBlockChain.NewBlockType, relativityOffset: Int): Boolean {
         // TODO: Watch out for the confirmation. If no confirmation of the revocation occurs within N hours, alert the user.
-        return super.notifyTransactionIsInBlock(txHash, block, blockType, relativityOffset)
+        return bitcoin.wallet.notifyTransactionIsInBlock(
+                txHash,
+                block,
+                blockType,
+                relativityOffset
+        )
     }
 
     private fun whichPledgesAreRevokedBy(t: Transaction): List<LHProtos.Pledge> {

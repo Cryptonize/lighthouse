@@ -386,6 +386,12 @@ public class Project {
         });
         contract.setPurpose(Transaction.Purpose.ASSURANCE_CONTRACT_CLAIM);
         contract.verify();
+        log.info("completeContract ");
+        for(TransactionInput input: contract.getInputs()){
+            log.info("input " + input.toString());
+            DefaultRiskAnalysis.RuleViolation ruleViolation = DefaultRiskAnalysis.isInputSignedWithForkId(input, true);
+            log.info("sig rules violated " + ruleViolation.name());
+        }
         return contract;
     }
 

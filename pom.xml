@@ -51,7 +51,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.bitcoinj</groupId>
+            <groupId>cash.bitcoinj</groupId>
             <artifactId>bitcoinj-core</artifactId>
             <version>0.14-SNAPSHOT</version>
         </dependency>
