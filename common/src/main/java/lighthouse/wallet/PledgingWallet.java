@@ -280,7 +280,6 @@ public class PledgingWallet extends Wallet {
             if (params == UnitTestParams.get())
                 req.shuffleOutputs = false;
             req.aesKey = aesKey;
-            req.ensureMinRequiredFee = true;
             req.setUseForkId(true);
             completeTx(req);
             dependency = req.tx;
@@ -397,7 +396,6 @@ public class PledgingWallet extends Wallet {
                 freshReceiveKey().toAddress(params));
         SendRequest request = SendRequest.forTx(revocation);
         request.setUseForkId(true);
-        request.ensureMinRequiredFee = true;
         request.aesKey = aesKey;
         completeTx(request);
         synchronized (this) {
@@ -490,36 +488,6 @@ public class PledgingWallet extends Wallet {
                     signTransaction(req);
                     log.info("Prepared final contract(req): {}", req.tx);
                     log.info("Prepared final contract(req - hex): {}", DatatypeConverter.printHexBinary(req.tx.unsafeBitcoinSerialize()));
-                    int i = 0;
-                    for(TransactionInput input: req.tx.getInputs()){
-                        log.info("CHECKING {} INPUT ", i);
-                        log.info("input " + input.toString());
-                        DefaultRiskAnalysis.RuleViolation ruleViolation = DefaultRiskAnalysis.isInputSignedWithForkId(input, true);
-                        log.info("sig rules violated " + ruleViolation.name());
-
-                        try {
-                            // We assume if its already signed, its hopefully got a SIGHASH type that will not invalidate when
-                            // we sign missing pieces (to check this would require either assuming any signatures are signing
-                            // standard output types or a way to get processed signatures out of script execution)
-                            if(input.getScriptSig()!=null){
-
-                                if(input.getConnectedOutput()!=null){
-                                    input.getScriptSig().correctlySpends(tx, i, input.getConnectedOutput().getScriptPubKey());
-                                }else{
-                                    log.info("no ConnectedOutput");
-                                }
-
-                            } else{
-                               log.info("no Script sig");
-                            }
-                            log.info("Input {} already correctly spends output, assuming SIGHASH type used will be safe and skipping signing.", i);
-
-                        } catch (ScriptException e) {
-                            log.info("Input contained an incorrect signature", e);
-                            // Expected.
-                        }
-                        i++;
-                    }
 
                     TransactionBroadcast broadcast = vTransactionBroadcaster.broadcastTransaction(req.tx);
 
