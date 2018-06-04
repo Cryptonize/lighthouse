@@ -299,6 +299,7 @@ public class PledgingWallet extends Wallet {
         checkNotNull(stub);
 
         Transaction pledge = new Transaction(getParams());
+        pledge.setVersion(2);
         // TODO: Support submitting multiple inputs in a single pledge tx here.
         TransactionInput input = pledge.addInput(stub);
         project.getOutputs().forEach(pledge::addOutput);
@@ -307,9 +308,9 @@ public class PledgingWallet extends Wallet {
         Script script = stub.getScriptPubKey();
         if (aesKey != null)
             key = key.maybeDecrypt(aesKey);
-        TransactionSignature signature =
-                pledge.calculateWitnessSignature(0, key, script, pledge.getInput(0).getConnectedOutput().getValue(),
-                        Transaction.SigHash.ALL, true /* anyone can pay! */);
+
+        TransactionSignature signature = pledge.calculateWitnessSignature(0, key, script,
+                input.getConnectedOutput().getValue(), Transaction.SigHash.ALL, true /* anyone can pay! */);
 
         if (script.isSentToAddress()) {
             input.setScriptSig(ScriptBuilder.createInputScript(signature, key));
@@ -320,12 +321,8 @@ public class PledgingWallet extends Wallet {
         }
         input.setScriptSig(ScriptBuilder.createInputScript(signature,  key));
         pledge.setPurpose(Transaction.Purpose.ASSURANCE_CONTRACT_PLEDGE);
-        log.info("pledge connected output value {}", pledge.getInput(0).getConnectedOutput().getValue().toPlainString());
+
         log.info("Paid {} satoshis in fees to create pledge tx {}", totalFees, pledge);
-        if(dependency != null)
-            log.info("dependencies {} ", dependency);
-        else
-            log.info("depency null");
 
         return new PendingPledge(project, dependency, pledge, totalFees.longValue(), details);
     }

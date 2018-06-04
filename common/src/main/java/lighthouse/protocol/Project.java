@@ -382,16 +382,30 @@ public class Project {
         if (allPledgesValue != goalAmount)
             throw new Ex.ValueMismatch(allPledgesValue - goalAmount);
         pledges.stream().map(this::fastSanityCheck).forEach(pledge -> {
-            pledge.getInputs().forEach(contract::addInput);
+            for (TransactionInput transactionInput : pledge.getInputs()) {
+
+                if(transactionInput.getConnectedOutput()==null)
+                    log.info("input has no connected output");
+                else
+                    log.info("hooray, connected input there");
+
+                if(transactionInput.getOutpoint()==null)
+                    log.info("input has no outpoint");
+                else{
+                    log.info("but input has outpoint");
+                    if(transactionInput.getConnectedOutput() == null)
+                        log.info("which has no connected output");
+                }
+
+
+                contract.addInput(transactionInput);
+
+
+            }
         });
         contract.setPurpose(Transaction.Purpose.ASSURANCE_CONTRACT_CLAIM);
         contract.verify();
-        log.info("completeContract ");
-        for(TransactionInput input: contract.getInputs()){
-            log.info("input " + input.toString());
-            DefaultRiskAnalysis.RuleViolation ruleViolation = DefaultRiskAnalysis.isInputSignedWithForkId(input, true);
-            log.info("sig rules violated " + ruleViolation.name());
-        }
+
         return contract;
     }
 

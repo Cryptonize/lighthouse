@@ -51,7 +51,6 @@ public class EmptyWalletController {
             Address destination = new Address(Main.params, address.getText());
             SendRequest req = SendRequest.emptyWallet(destination);
             req.aesKey = aesKey;
-            req.ensureMinRequiredFee = true;
             req.setUseForkId(true);
             sendResult = Main.bitcoin.wallet().sendCoins(req);
             Futures.addCallback(sendResult.broadcastComplete, new FutureCallback<Transaction>() {
