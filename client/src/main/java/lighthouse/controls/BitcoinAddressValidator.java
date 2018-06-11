@@ -34,7 +34,7 @@ public class BitcoinAddressValidator {
 
     private boolean testAddr(String text) {
         try {
-            new Address(params, text);
+            CashAddressFactory.create().getFromFormattedAddress(this.params, text);
             return true;
         } catch (AddressFormatException e) {
             return false;

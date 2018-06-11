@@ -37,8 +37,9 @@ public class ProjectModel {
     public static final int MAX_NUM_INPUTS = (Transaction.MAX_STANDARD_TX_SIZE - 64) /* for output */ / ESTIMATED_INPUT_SIZE;
 
     public ProjectModel(PledgingWallet wallet) {
-        this(Project.makeDetails(wallet.getParams(), "", "", wallet.freshReceiveAddress(), Coin.SATOSHI, wallet.freshAuthKey(),
-                wallet.getKeyChainGroupLookaheadSize()));
+        this(Project.makeDetails(wallet.getParams(), "", "",
+                CashAddressFactory.create().getFromBase58(wallet.getParams(), wallet.freshReceiveAddress().toBase58()),
+                Coin.SATOSHI, wallet.freshAuthKey(), wallet.getKeyChainGroupLookaheadSize()));
     }
 
     public ProjectModel(Project editing) {
@@ -103,10 +104,11 @@ public class ProjectModel {
         if (addr == null)
             // TRANS: %s = transaction output
             throw new IllegalArgumentException(String.format(tr("Output type is not pay to address/p2sh: %s"), output));
-        address.set(addr.toString());
+        CashAddress cashAddress = CashAddressFactory.create().getFromBase58(project.getParams(), addr.toString());
+        address.set(cashAddress.toString());
         address.addListener(o -> {
             try {
-                Address addr2 = new Address(project.getParams(), address.get());
+                Address addr2 = CashAddressFactory.create().getFromFormattedAddress(project.getParams(), address.get());
                 proto.getOutputsBuilder(0).setScript(ByteString.copyFrom(ScriptBuilder.createOutputScript(addr2).getProgram()));
             } catch (AddressFormatException e) {
                 // Ignored: wait for the user to make it valid.

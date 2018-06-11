@@ -382,26 +382,7 @@ public class Project {
         if (allPledgesValue != goalAmount)
             throw new Ex.ValueMismatch(allPledgesValue - goalAmount);
         pledges.stream().map(this::fastSanityCheck).forEach(pledge -> {
-            for (TransactionInput transactionInput : pledge.getInputs()) {
-
-                if(transactionInput.getConnectedOutput()==null)
-                    log.info("input has no connected output");
-                else
-                    log.info("hooray, connected input there");
-
-                if(transactionInput.getOutpoint()==null)
-                    log.info("input has no outpoint");
-                else{
-                    log.info("but input has outpoint");
-                    if(transactionInput.getConnectedOutput() == null)
-                        log.info("which has no connected output");
-                }
-
-
-                contract.addInput(transactionInput);
-
-
-            }
+            pledge.getInputs().forEach(contract::addInput);
         });
         contract.setPurpose(Transaction.Purpose.ASSURANCE_CONTRACT_CLAIM);
         contract.verify();

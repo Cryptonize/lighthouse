@@ -14,7 +14,7 @@ import java.util.*;
  * A class that exposes relevant bitcoin stuff as JavaFX bindable properties.
  */
 public class BitcoinUIModel {
-    private SimpleObjectProperty<Address> address = new SimpleObjectProperty<>();
+    private SimpleObjectProperty<CashAddress> address = new SimpleObjectProperty<>();
     private SimpleObjectProperty<Coin> balance = new SimpleObjectProperty<>(Coin.ZERO);
     private SimpleDoubleProperty syncProgress = new SimpleDoubleProperty(-1);
 
@@ -26,7 +26,8 @@ public class BitcoinUIModel {
 
     private void update(Wallet wallet) {
         balance.set(wallet.getBalance(Wallet.BalanceType.AVAILABLE_SPENDABLE));
-        address.set(wallet.currentReceiveAddress());
+        CashAddress cashAddress = CashAddressFactory.create().getFromBase58(wallet.getParams(), wallet.currentReceiveAddress().toBase58());
+        address.set(cashAddress);
     }
 
     private class ProgressBarUpdater extends DownloadProgressTracker {
@@ -47,7 +48,7 @@ public class BitcoinUIModel {
 
     public ReadOnlyDoubleProperty syncProgressProperty() { return syncProgress; }
 
-    public ReadOnlyObjectProperty<Address> addressProperty() {
+    public ReadOnlyObjectProperty<CashAddress> addressProperty() {
         return address;
     }
 

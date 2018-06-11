@@ -161,7 +161,8 @@ public class EditProjectWindow {
             }
         });
 
-        ValidationLink addressValid = new ValidationLink(addressEdit, str -> !didThrow(() -> new Address(Main.params, str)));
+        ValidationLink addressValid = new ValidationLink(addressEdit, str -> !didThrow(() ->
+                CashAddressFactory.create().getFromFormattedAddress(Main.params, str)));
         addressEdit.textProperty().addListener((obj, prev, cur) -> {
             if (addressValid.isValid.get())
                 this.model.address.set(cur);

@@ -48,7 +48,7 @@ public class EmptyWalletController {
     public void send(@Nullable ActionEvent event) {
         // Address exception cannot happen as we validated it beforehand.
         try {
-            Address destination = new Address(Main.params, address.getText());
+            Address destination = CashAddressFactory.create().getFromFormattedAddress(Main.params, address.getText());
             SendRequest req = SendRequest.emptyWallet(destination);
             req.aesKey = aesKey;
             req.setUseForkId(true);
